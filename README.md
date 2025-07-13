@@ -1,0 +1,2 @@
+# JinShil.MixinSourceGenerator
+A C# source generator for composing classes or structs from other classes or structs using mixins.
