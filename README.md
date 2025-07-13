@@ -48,7 +48,7 @@ class Implementation2
 ```C#
 [Mixin(typeof(Implementation1))]
 [Mixin(typeof(Implementation2))]
-class Composition : SomeBaseClass, ISomeInterface
+partial class Composition : SomeBaseClass, ISomeInterface
 {
      /// <summary>
     /// Summary for Property1
