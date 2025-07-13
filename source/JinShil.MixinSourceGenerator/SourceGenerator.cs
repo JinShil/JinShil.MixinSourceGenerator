@@ -38,6 +38,9 @@ namespace JinShil.MixinSourceGenerator
             var attributeSource = @$"
 namespace JinShil.MixinSourceGenerator
 {{
+    /// <summary>
+    /// Specifies the type whose members are to be mixed in to a partial class or struct.
+    /// </summary>
     [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct, AllowMultiple = true)]
     public class {MixinAttributeName} : System.Attribute
     {{
@@ -57,6 +60,9 @@ namespace JinShil.MixinSourceGenerator
             var attributeSource = @$"
 namespace JinShil.MixinSourceGenerator
 {{
+    /// <summary>
+    /// Used to identify a member that should be ignored when mixing in members from other types.
+    /// </summary>
     [System.AttributeUsage(System.AttributeTargets.Method | System.AttributeTargets.Property | System.AttributeTargets.Field | System.AttributeTargets.Event, AllowMultiple = false)]
     public class {MixinIgnoreAttributeName} : System.Attribute
     {{
