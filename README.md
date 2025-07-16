@@ -56,8 +56,6 @@ public partial class Composition : SomeBaseClass, ISomeInterface
 The above code will result in the following generated code.
 
 ```C#
-[Mixin(typeof(Implementation1))]
-[Mixin(typeof(Implementation2))]
 public partial class Composition : SomeBaseClass, ISomeInterface
 {
      /// <summary>
