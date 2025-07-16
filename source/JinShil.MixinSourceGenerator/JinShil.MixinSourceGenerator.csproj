@@ -5,10 +5,25 @@
         <LangVersion>9.0</LangVersion>
         <Nullable>enable</Nullable>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        <Version>1.0.0-beta.1</Version>
+        <Authors>JinShil</Authors>
+        <Copyright>© 2025 Michael V. Franklin</Copyright>
+        <Description>A C# source generator for composing classes or structs from other classes or structs using mixins.</Description>
+        <PackageId>JinShil.MixinSourceGenerator</PackageId>
+        <IsPackable>true</IsPackable>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+        <PackageIcon>icon.png</PackageIcon>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageTags>C#;csharp;net;source-generator;mixin;code-generation;net;productivity</PackageTags>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all" />
     </ItemGroup>
     
+    <ItemGroup>
+        <None Include="icon.png" Pack="true" PackagePath="" />
+        <None Include="README.md" Pack="true" PackagePath="" />
+    </ItemGroup>
 </Project>
