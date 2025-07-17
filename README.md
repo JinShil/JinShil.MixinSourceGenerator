@@ -2,7 +2,7 @@
 
 This is a very simple, but powerful C# source generator that simplifies class and struct composition through the use of mixins.
 
-It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another single type.  The resulting single type becomes a composition of the implementation types without employing inheritance, extensions, default interface methods, or any other specialized language feature.
+It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another type.  The resulting type becomes a composition of the implementation types without employing inheritance, extensions, default interface methods, or any other specialized language feature.
 
 It simply copies and pastes members from one or more types into another.
 
@@ -12,6 +12,7 @@ The following example demonstrates how to use this source generator to compose a
 
 1. Apply one or more `[Mixin(typeof(TypeToMixIn))]` attributes to a partial class or struct, specifying the types to mix in.
 2. The source generator scans for the specified types and copies their members, including attributes and XML comments, verbatim into the attributed type.
+
 
 ### Source Code
 
@@ -104,7 +105,7 @@ public partial class Composition : SomeBaseClass, ISomeInterface
 
 ## The `[MixinIgnore]` Attribute
 
-The `[MixinIgnore]` attributed can be added to implementation type members, allowing the implementation type to compile, but deferring the implementation to the composed type.
+The `[MixinIgnore]` attributed can be added to implementation type members, allowing the implementation type to compile, but deferring the member's implementation to the composed type.
 
 ### Source Code
 
