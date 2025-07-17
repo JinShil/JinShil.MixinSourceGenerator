@@ -1,6 +1,6 @@
 # JinShil.MixinSourceGenerator
 
-[![NuGet Version](https://img.shields.io/nuget/v/MySourceGenerator?style=flat-square&logo=nuget)](https://www.nuget.org/packages/JinShil.MixinSourceGenerator)
+[![NuGet Version](https://img.shields.io/nuget/v/JinShil.MixinSourceGenerator?style=flat-square&logo=nuget)](https://www.nuget.org/packages/JinShil.MixinSourceGenerator)
 
 This is a very simple, but powerful C# source generator that simplifies class and struct composition through the use of mixins.
 
