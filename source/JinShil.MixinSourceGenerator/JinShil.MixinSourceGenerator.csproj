@@ -7,7 +7,7 @@
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <IsRoslynComponent>true</IsRoslynComponent>
         <DevelopmentDependency>true</DevelopmentDependency>
-        <Version>1.0.0-beta.5</Version>
+        <Version>1.0.0</Version>
         <Authors>JinShil</Authors>
         <Copyright>Copyright © Michael V. Franklin 2025</Copyright>
         <Description>A C# source generator for composing classes or structs from other classes or structs using mixins.</Description>
@@ -22,7 +22,7 @@
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/JinShil/JinShil.MixinSourceGenerator</PackageProjectUrl>
         <PackageReleaseNotes>
-- Fixing package configuration to include the source generator correctly.
+- Initial release.
         </PackageReleaseNotes>
     </PropertyGroup>
 
