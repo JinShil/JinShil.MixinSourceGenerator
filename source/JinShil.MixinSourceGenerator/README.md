@@ -1,6 +1,6 @@
 # JinShil.MixinSourceGenerator
 
-This is a C# source generator that simplifies class and struct composition through the use of mixins. It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another single type.  The resulting single type is acomposition of the implementation types without employing, inheritance, extensions, or default interface methods.
+This is a C# source generator that simplifies class and struct composition through the use of mixins. It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another single type.  The resulting single type becomes a composition of the implementation types without employing, inheritance, extensions, or default interface methods.
 
 ## Example
 
@@ -59,7 +59,7 @@ public partial class Composition : SomeBaseClass, ISomeInterface
 }
 ```
 ### Generated Code
-The above code will result in the following generated code.
+The above code will result in the following generated code, a composition of `Implementation1` and `Implementation2`.
 
 ```C#
 [Mixin(typeof(Implementation1))]
@@ -94,6 +94,68 @@ public partial class Composition : SomeBaseClass, ISomeInterface
     public void Method2()
     {
         Console.WriteLine("Running Method 2");
+    }
+}
+```
+
+## The `[MixinIgnore]` Attribute
+
+The `[MixinIgnore]` attributed can be added to implementation type members, allowing the implementation type to compile, but deferring the implementation to the composed type.
+
+### Source Code
+
+```C#
+internal class Implementation
+{
+    // The source generator will not copy this method into any composition type.
+    // This member is effectively just a stub, so this implementation class will compile.
+    [MixinIgnore]
+    void Method1()
+    { }
+
+    /// <summary>
+    /// Summary of Method2
+    /// </summary>
+    public void Method2()
+    {
+        Method1();
+    }
+}
+```
+
+```C#
+[Mixin(typeof(Implementation))]
+public partial class Composition
+{
+    /// <summary>
+    /// Summary of Method1
+    /// </summary>
+    public void Method1()
+    {
+        Console.WriteLine("Running Method1");
+    }
+}
+```
+### Generated Code
+The above code will result in the following generated code.  `Implementation.Method2()` will call `Composition.Method1()`, not `Implementation.Method1()`.
+
+```C#
+public partial class Composition
+{
+    /// <summary>
+    /// Summary of Method1
+    /// </summary>
+    public void Method1()
+    {
+        Console.WriteLine("Running Method1");
+    }
+
+    /// <summary>
+    /// Summary of Method2
+    /// </summary>
+    public void Method2()
+    {
+        Method1();
     }
 }
 ```

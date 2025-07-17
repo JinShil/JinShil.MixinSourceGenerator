@@ -19,7 +19,13 @@
         <RepositoryUrl>https://github.com/JinShil/JinShil.MixinSourceGenerator</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/JinShil/JinShil.MixinSourceGenerator</PackageProjectUrl>
-        <PackageReleaseNotes>Initial release.</PackageReleaseNotes>
+        <PackageReleaseNotes>
+## 1.0.0-beta.2
+- More informative Readme.
+
+## 1.0.0-beta.1
+- Initial release.
+        </PackageReleaseNotes>
     </PropertyGroup>
 
     <ItemGroup>
