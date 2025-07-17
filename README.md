@@ -1,5 +1,7 @@
 # JinShil.MixinSourceGenerator
 
+[![NuGet Version](https://img.shields.io/nuget/v/MySourceGenerator?style=flat-square&logo=nuget)](https://www.nuget.org/packages/JinShil.MixinSourceGenerator)
+
 This is a very simple, but powerful C# source generator that simplifies class and struct composition through the use of mixins.
 
 It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another type.  The resulting type becomes a composition of the implementation types without employing inheritance, extensions, default interface methods, or any other specialized language feature.
