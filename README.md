@@ -1,13 +1,17 @@
 # JinShil.MixinSourceGenerator
 
-This is a C# source generator that simplifies class and struct composition through the use of mixins. It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another single type.  The resulting single type becomes a composition of the implementation types without employing, inheritance, extensions, or default interface methods.
+This is a very simple, but powerful C# source generator that simplifies class and struct composition through the use of mixins.
+
+It dramatically increases code reuse by copying members, including attributes and XML comments, verbatim from one or more implementation types to another single type.  The resulting single type becomes a composition of the implementation types without employing inheritance, extensions, default interface methods, or any other specialized language feature.
+
+It simply copies and pastes members from one or more types into another.
 
 ## Example
 
 The following example demonstrates how to use this source generator to compose a class from two implementation classes.
 
-1. Apply one or more `[Mixin(typeof(TypeToMixIn))]` attributes to a partial class or struct, specifying the types to mix in to the attributed type.
-2. The source generator scans for the specified types and copies their members verbatim into the attributed type, including all attributes and XML comments.
+1. Apply one or more `[Mixin(typeof(TypeToMixIn))]` attributes to a partial class or struct, specifying the types to mix in.
+2. The source generator scans for the specified types and copies their members, including attributes and XML comments, verbatim into the attributed type.
 
 ### Source Code
 
@@ -108,7 +112,7 @@ The `[MixinIgnore]` attributed can be added to implementation type members, allo
 internal class Implementation
 {
     // The source generator will not copy this method into any composition type.
-    // This member is effectively just a stub, so this implementation class will compile.
+    // This member is effectively just a stub, so that this implementation class will compile.
     [MixinIgnore]
     void Method1()
     { }
