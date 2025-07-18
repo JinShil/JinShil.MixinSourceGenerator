@@ -105,7 +105,7 @@ public partial class Composition : SomeBaseClass, ISomeInterface
 
 ## The `[MixinIgnore]` Attribute
 
-The `[MixinIgnore]` attributed can be added to implementation type members, allowing the implementation type to compile, but deferring the member's implementation to the composed type.
+The `[MixinIgnore]` attribute can be added to implementation type members, allowing the implementation type to compile, but deferring the member's implementation to the composed type.
 
 ### Source Code
 
