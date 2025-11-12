@@ -22,6 +22,10 @@
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/JinShil/JinShil.MixinSourceGenerator</PackageProjectUrl>
         <PackageReleaseNotes>
+v1.0.1
+- Add XML comments to some generated types and members to avoid warnings when XML documentation generation is enabled.
+
+v1.0.0
 - Initial release.
         </PackageReleaseNotes>
     </PropertyGroup>
