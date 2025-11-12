@@ -63,7 +63,15 @@ namespace JinShil.MixinSourceGenerator
     [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct, AllowMultiple = true)]
     public class {MixinAttributeName} : System.Attribute
     {{
+        /// <summary>
+        /// The type whose members are to be mixed in.
+        /// </summary>
         public System.Type Type {{ get; }}
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref=""{MixinAttributeName}""/> class.
+        /// </summary>
+        /// <param name=""type"">The type whose members are to be mixed in.</param>
         public {MixinAttributeName}(System.Type type)
         {{
             Type = type;
@@ -85,6 +93,9 @@ namespace JinShil.MixinSourceGenerator
     [System.AttributeUsage(System.AttributeTargets.Method | System.AttributeTargets.Property | System.AttributeTargets.Field | System.AttributeTargets.Event, AllowMultiple = false)]
     public class {MixinIgnoreAttributeName} : System.Attribute
     {{
+        /// <summary>
+        /// Initializes a new instance of the <see cref=""{MixinIgnoreAttributeName}""/> class.
+        /// </summary>
         public {MixinIgnoreAttributeName}()
         {{ }}
     }}

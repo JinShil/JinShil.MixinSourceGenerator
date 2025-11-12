@@ -7,7 +7,7 @@
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <IsRoslynComponent>true</IsRoslynComponent>
         <DevelopmentDependency>true</DevelopmentDependency>
-        <Version>1.0.0</Version>
+        <Version>1.0.1</Version>
         <Authors>JinShil</Authors>
         <Copyright>Copyright © Michael V. Franklin 2025</Copyright>
         <Description>A C# source generator for composing classes or structs from other classes or structs using mixins.</Description>
@@ -27,7 +27,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
     </ItemGroup>
     
     <ItemGroup>
