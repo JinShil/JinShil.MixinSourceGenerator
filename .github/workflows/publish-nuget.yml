@@ -3,6 +3,12 @@ name: Publish to NuGet
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag of the published GitHub release
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -11,10 +17,29 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
     steps:
+      # Manual runs accept tags that already have a published GitHub release.
+      - name: Verify the selected release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tag_path="$(node -p 'encodeURIComponent(process.env.RELEASE_TAG)')"
+          if ! curl --fail --silent --show-error --output /dev/null \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$tag_path"; then
+            printf '%s\n' '::error::Use the tag of a published GitHub release.'
+            exit 1
+          fi
+
+      # A manual run loads the workflow from main and builds the selected tag's source.
       - name: Check out the tagged release
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
           persist-credentials: false
 
       - name: Set up .NET
@@ -28,8 +53,6 @@ jobs:
 
       - name: Match the package to the release tag
         id: package
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           version="${RELEASE_TAG#v}"
           package="source/JinShil.MixinSourceGenerator/bin/Release/JinShil.MixinSourceGenerator.${version}.nupkg"
