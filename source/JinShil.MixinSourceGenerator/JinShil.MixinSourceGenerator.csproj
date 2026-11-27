@@ -7,13 +7,15 @@
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <IsRoslynComponent>true</IsRoslynComponent>
         <DevelopmentDependency>true</DevelopmentDependency>
-        <Version>1.0.1</Version>
+        <Version>1.0.2</Version>
         <Authors>JinShil</Authors>
         <Copyright>Copyright © Michael V. Franklin 2025</Copyright>
         <Description>A C# source generator for composing classes or structs from other classes or structs using mixins.</Description>
         <PackageId>JinShil.MixinSourceGenerator</PackageId>
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <IncludeBuildOutput>false</IncludeBuildOutput>
+        <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
         <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
         <PackageIcon>icon.png</PackageIcon>
         <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -22,6 +24,12 @@
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/JinShil/JinShil.MixinSourceGenerator</PackageProjectUrl>
         <PackageReleaseNotes>
+v1.0.2
+- Resolve qualified and aliased mixin references and copy all parts of partial implementations.
+- Diagnose cycles and invalid mixin inputs, and copy shared dependencies once.
+- Support nested, generic, and record targets. Preserve imports, active code, and nullable and unsafe contexts when copying members.
+- Ship the generator as a compiler analyzer.
+
 v1.0.1
 - Add XML comments to some generated types and members to avoid warnings when XML documentation generation is enabled.
 
@@ -32,6 +40,8 @@ v1.0.0
 
     <ItemGroup>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+        <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+        <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
     </ItemGroup>
     
     <ItemGroup>

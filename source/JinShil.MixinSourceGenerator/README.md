@@ -13,6 +13,8 @@ The following example demonstrates how to use this source generator to compose a
 1. Apply one or more `[Mixin(typeof(TypeToMixIn))]` attributes to a partial class or struct, specifying the types to mix in.
 2. The source generator scans for the specified types and copies their members, including attributes and XML comments, verbatim into the attributed type.
 
+Declare the implementation types in the same compilation as the target. For a nested target, mark its containing types `partial` as well. Use the open generic form, such as `typeof(Implementation<>)`, for a generic implementation and declare the type parameters its copied members use on the target. Define any constructors and finalizers the composed type needs on the target itself.
+
 
 ### Source Code
 
@@ -63,15 +65,15 @@ public partial class Composition : SomeBaseClass, ISomeInterface
 {
 }
 ```
-### Generated Code
-The above code will result in the following generated code, a composition of `Implementation1` and `Implementation2`.
+### Composed Type
+After generation, `Composition` includes the following members from `Implementation1` and `Implementation2`.
 
 ```C#
 [Mixin(typeof(Implementation1))]
 [Mixin(typeof(Implementation2))]
 public partial class Composition : SomeBaseClass, ISomeInterface
 {
-     /// <summary>
+    /// <summary>
     /// Summary for Property1
     /// </summary>
     [SomeAttribute]
@@ -141,8 +143,8 @@ public partial class Composition
     }
 }
 ```
-### Generated Code
-The above code will result in the following generated code.  `Implementation.Method2()` will call `Composition.Method1()`, not `Implementation.Method1()`.
+### Composed Type
+Calling `Method2()` on a `Composition` instance runs `Composition.Method1()`.
 
 ```C#
 public partial class Composition

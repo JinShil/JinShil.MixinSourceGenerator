@@ -24,55 +24,63 @@ using Microsoft.CodeAnalysis.Text;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace JinShil.MixinSourceGenerator
 {
+    /// <summary>
+    /// Copies mixin members into partial C# types so the compiler binds the copied code in the target type.
+    /// </summary>
     [Generator(LanguageNames.CSharp)]
     public class SourceGenerator : IIncrementalGenerator
     {
+        // Use the same names in emitted declarations and in Roslyn's attribute lookup.
         const string MixinAttributeName = "MixinAttribute";
         const string MixinIgnoreAttributeName = "MixinIgnoreAttribute";
+        const string MixinAttributeMetadataName = "JinShil.MixinSourceGenerator." + MixinAttributeName;
+        const string MixinIgnoreAttributeMetadataName = "JinShil.MixinSourceGenerator." + MixinIgnoreAttributeName;
 
-        static bool IsMixinAttribute(AttributeSyntax attribute)
-        {
-            string name = attribute.Name.ToString();
-            string attributeName = MixinAttributeName;
-            var attributeNameWithoutSuffix = attributeName.Substring(0, attributeName.Length - "Attribute".Length);
-            return name == attributeName || name == attributeNameWithoutSuffix;
-        }
+        // Give each failure a stable diagnostic ID so build output identifies the input that needs attention.
+        static readonly DiagnosticDescriptor CyclicMixin = new(
+            "MIXIN001", "Cyclic mixin reference", "Applying mixin '{0}' to '{1}' creates a cycle",
+            "MixinSourceGenerator", DiagnosticSeverity.Error, isEnabledByDefault: true);
 
-        static bool IsMixinIgnoreAttribute(AttributeSyntax attribute)
-        {
-            string name = attribute.Name.ToString();
-            string attributeName = MixinIgnoreAttributeName;
-            var attributeNameWithoutSuffix = attributeName.Substring(0, attributeName.Length - "Attribute".Length);
-            return name == attributeName || name == attributeNameWithoutSuffix;
-        }
+        static readonly DiagnosticDescriptor UnavailableImplementation = new(
+            "MIXIN002", "Unavailable mixin implementation", "Mixin implementation '{0}' must be a class, struct, or interface declared in this compilation",
+            "MixinSourceGenerator", DiagnosticSeverity.Error, isEnabledByDefault: true);
+
+        static readonly DiagnosticDescriptor InvalidTarget = new(
+            "MIXIN003", "Invalid mixin target", "Mixin target '{0}' and its containing types must be partial and available outside their source file",
+            "MixinSourceGenerator", DiagnosticSeverity.Error, isEnabledByDefault: true);
+
+        static readonly DiagnosticDescriptor ConstructedImplementation = new(
+            "MIXIN004", "Constructed generic mixin implementation", "Use the open generic form of '{0}' and declare any type parameters its members need on the target",
+            "MixinSourceGenerator", DiagnosticSeverity.Error, isEnabledByDefault: true);
 
         static void GenerateMixinAttribute(IncrementalGeneratorInitializationContext context)
         {
+            // Each consuming compilation gets an attribute that takes the implementation type from typeof.
             var attributeSource = @$"
 namespace JinShil.MixinSourceGenerator
 {{
     /// <summary>
     /// Specifies the type whose members are to be mixed in to a partial class or struct.
     /// </summary>
-    [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct, AllowMultiple = true)]
-    public class {MixinAttributeName} : System.Attribute
+    [global::System.AttributeUsage(global::System.AttributeTargets.Class | global::System.AttributeTargets.Struct, AllowMultiple = true)]
+    public class {MixinAttributeName} : global::System.Attribute
     {{
         /// <summary>
         /// The type whose members are to be mixed in.
         /// </summary>
-        public System.Type Type {{ get; }}
+        public global::System.Type Type {{ get; }}
 
         /// <summary>
         /// Initializes a new instance of the <see cref=""{MixinAttributeName}""/> class.
         /// </summary>
         /// <param name=""type"">The type whose members are to be mixed in.</param>
-        public {MixinAttributeName}(System.Type type)
+        public {MixinAttributeName}(global::System.Type type)
         {{
             Type = type;
         }}
@@ -84,14 +92,15 @@ namespace JinShil.MixinSourceGenerator
 
         static void GenerateMixinIgnoreAttribute(IncrementalGeneratorInitializationContext context)
         {
+            // This member-level marker lets the target supply declarations that the remaining mixin code uses.
             var attributeSource = @$"
 namespace JinShil.MixinSourceGenerator
 {{
     /// <summary>
     /// Used to identify a member that should be ignored when mixing in members from other types.
     /// </summary>
-    [System.AttributeUsage(System.AttributeTargets.Method | System.AttributeTargets.Property | System.AttributeTargets.Field | System.AttributeTargets.Event, AllowMultiple = false)]
-    public class {MixinIgnoreAttributeName} : System.Attribute
+    [global::System.AttributeUsage(global::System.AttributeTargets.Method | global::System.AttributeTargets.Property | global::System.AttributeTargets.Field | global::System.AttributeTargets.Event, AllowMultiple = false)]
+    public class {MixinIgnoreAttributeName} : global::System.Attribute
     {{
         /// <summary>
         /// Initializes a new instance of the <see cref=""{MixinIgnoreAttributeName}""/> class.
@@ -104,208 +113,286 @@ namespace JinShil.MixinSourceGenerator
                 ctx.AddSource($"{MixinIgnoreAttributeName}.g.cs", SourceText.From(attributeSource, Encoding.UTF8)));
         }
 
-        static bool IsTargetType(TypeDeclarationSyntax type)
+        static IEnumerable<TypeDeclarationSyntax> GetImplementationTypes(
+            INamedTypeSymbol target, INamedTypeSymbol mixinAttribute, SourceProductionContext context, HashSet<Location> reported)
         {
-            // Check if the type is a partial class or struct with Mixin attributes
-            return type.Modifiers.Any(SyntaxKind.PartialKeyword) &&
-                   type.AttributeLists.Any(al => al.Attributes.Any(a => IsMixinAttribute(a)));
-        }
+            // Seed both sets with the target. The active set detects cycles in the current path.
+            // The visited set makes shared and repeated dependencies contribute their members once.
+            var visited = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { target };
+            var active = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { target };
 
-        static IEnumerable<TypeDeclarationSyntax> GetTargetTypes(IEnumerable<TypeDeclarationSyntax> types)
-        {
-            // Find all partial classes and structs with Mixin attributes
-            return types.Where(t => IsTargetType(t));
-        }
+            // Keep iterators on an explicit stack so a deep chain of mixins uses an iterative walk.
+            var pending = new Stack<(INamedTypeSymbol Type, ImmutableArray<AttributeData>.Enumerator Attributes)>();
+            pending.Push((target, target.GetAttributes().GetEnumerator()));
 
-        static IEnumerable<TypeDeclarationSyntax> GetImplementationTypes(TypeDeclarationSyntax targetType, IEnumerable<TypeDeclarationSyntax> types)
-        {
-            // Collect all the types that are referenced in Mixin attributes
-            foreach (var attributeList in targetType.AttributeLists)
+            // Emit each implementation after its dependencies, retaining attribute order.
+            while (pending.Count > 0)
             {
-                foreach (var attribute in attributeList.Attributes)
+                context.CancellationToken.ThrowIfCancellationRequested();
+                var (type, attributes) = pending.Pop();
+                if (!attributes.MoveNext())
                 {
-                    if (IsMixinAttribute(attribute))
+                    // All dependencies are complete. Copy every partial declaration of an implementation.
+                    // The target itself already has its own members in the original compilation.
+                    active.Remove(type);
+                    if (!SymbolEqualityComparer.Default.Equals(type, target))
                     {
-                        if (attribute.ArgumentList?.Arguments.Count > 0)
+                        foreach (var reference in type.DeclaringSyntaxReferences)
                         {
-                            var typeArg = attribute.ArgumentList.Arguments[0].Expression;
-                            if (typeArg is TypeOfExpressionSyntax typeOf)
-                            {
-                                var typeName = typeOf.Type.ToString();
-                                var implType = types.FirstOrDefault(t => t.Identifier.Text == typeName);
-                                if (implType != null)
-                                {
-                                    // If the implementation type is also a partial class or struct, recursively get its implementations
-                                    if (IsTargetType(implType))
-                                    {
-                                        foreach (var i in GetImplementationTypes(implType, types))
-                                        {
-                                            yield return i;
-                                        }
-                                    }
-
-                                    yield return implType;
-                                }
-                            }
+                            if (reference.GetSyntax(context.CancellationToken) is TypeDeclarationSyntax declaration)
+                                yield return declaration;
                         }
                     }
+
+                    continue;
+                }
+
+                // Save the iterator position so this type resumes with its next attribute after a dependency.
+                pending.Push((type, attributes));
+
+                // Compare bound attribute types so qualified and aliased forms identify the same marker.
+                var attribute = attributes.Current;
+                if (!SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, mixinAttribute) || attribute.ConstructorArguments.Length != 1)
+                {
+                    continue;
+                }
+
+                // Let the compiler report invalid C# arguments. A valid mixin argument must provide source
+                // declarations in this compilation because the generator copies their member syntax.
+                var argument = attribute.ConstructorArguments[0];
+                if (argument.Kind == TypedConstantKind.Error || argument.Value is IErrorTypeSymbol)
+                    continue;
+
+                if (argument.Value is not INamedTypeSymbol implementation ||
+                    implementation.DeclaringSyntaxReferences.IsEmpty ||
+                    implementation.TypeKind is not (TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
+                {
+                    ReportMixinDiagnostic(context, reported, attribute, UnavailableImplementation, argument.Value?.ToString() ?? "null");
+                    continue;
+                }
+
+                // Applying concrete generic arguments would require substituting types throughout the copied members.
+                if (implementation.IsGenericType && !implementation.IsUnboundGenericType)
+                {
+                    ReportMixinDiagnostic(context, reported, attribute, ConstructedImplementation, implementation.ToDisplayString());
+                    continue;
+                }
+
+                // Give an open generic reference and its original declaration the same graph identity.
+                implementation = implementation.OriginalDefinition;
+                if (active.Contains(implementation))
+                {
+                    ReportMixinDiagnostic(context, reported, attribute, CyclicMixin, implementation.ToDisplayString(), type.ToDisplayString());
+                    continue;
+                }
+
+                // Expand an unvisited dependency before resuming the saved iterator for the current type.
+                if (visited.Add(implementation))
+                {
+                    active.Add(implementation);
+                    pending.Push((implementation, implementation.GetAttributes().GetEnumerator()));
                 }
             }
         }
 
-        static (IEnumerable<MemberDeclarationSyntax> Members, IEnumerable<UsingDirectiveSyntax> Usings) GetMembersAndUsings(IEnumerable<TypeDeclarationSyntax> implementationTypes)
+        static void ReportMixinDiagnostic(SourceProductionContext context, HashSet<Location> reported, AttributeData attribute,
+            DiagnosticDescriptor descriptor, params string[] messageArguments)
         {
-            var members = new List<MemberDeclarationSyntax>();
-            var usings = new HashSet<UsingDirectiveSyntax>(SyntaxNodeComparer.Instance);
+            // Point to the attribute and report it once even when several targets reach the same invalid reference.
+            var location = attribute.ApplicationSyntaxReference?.GetSyntax(context.CancellationToken).GetLocation() ?? Location.None;
+            if (reported.Add(location))
+                context.ReportDiagnostic(Diagnostic.Create(descriptor, location, messageArguments));
+        }
 
-            foreach (var implType in implementationTypes)
+        static IEnumerable<(List<MemberDeclarationSyntax> Members, Imports Imports, bool RequiresUnsafe)> GetCompositionParts(
+            INamedTypeSymbol target, IEnumerable<TypeDeclarationSyntax> implementations, Compilation compilation,
+            INamedTypeSymbol ignoreAttribute, CancellationToken cancellationToken)
+        {
+            // Accumulate consecutive mixins in one partial declaration while their imports can share a file.
+            var members = new List<MemberDeclarationSyntax>();
+            var imports = new Imports();
+            NullableContext? nullableContext = null;
+            bool requiresUnsafe = false;
+
+            foreach (var implementation in implementations)
             {
-                // Don't add constructors or destructors
-                var typeMembers = implType.Members
+                var semanticModel = compilation.GetSemanticModel(implementation.SyntaxTree);
+                // Constructor and destructor declarations belong to their original type. Resolve the ignore
+                // marker semantically so aliases for it work alongside other member attributes.
+                var typeMembers = implementation.Members
                     .Where(m => m is not ConstructorDeclarationSyntax &&
                                 m is not DestructorDeclarationSyntax &&
-                                !m.AttributeLists.Any(al => al.Attributes.Any(a => IsMixinIgnoreAttribute(a))));
+                                !m.AttributeLists.SelectMany(list => list.Attributes).Any(attribute =>
+                                    semanticModel.GetSymbolInfo(attribute, cancellationToken).Symbol is IMethodSymbol constructor &&
+                                    SymbolEqualityComparer.Default.Equals(constructor.ContainingType, ignoreAttribute)))
+                    .ToArray();
+                if (typeMembers.Length == 0)
+                    continue;
 
-                members.AddRange(typeMembers);
-
-                // Collect using directives from the compilation unit containing the implementation type
-                var compilationUnit = implType.Ancestors().OfType<CompilationUnitSyntax>().FirstOrDefault();
-                if (compilationUnit != null)
+                // Start a fresh file scope when merging imports would introduce a binding conflict.
+                var implementationImports = Imports.From(implementation, typeMembers, target.ContainingNamespace, semanticModel, cancellationToken);
+                if (imports.ConflictsWith(implementationImports))
                 {
-                    foreach (var usingDirective in compilationUnit.Usings)
-                    {
-                        usings.Add(usingDirective);
-                    }
+                    yield return (members, imports, requiresUnsafe);
+                    members = new();
+                    imports = new();
+                    nullableContext = null;
+                    requiresUnsafe = false;
                 }
+
+                // Copy member syntax with its comments, attributes, and active compiler context.
+                var memberContext = new MemberContext(semanticModel);
+                foreach (var member in typeMembers)
+                    members.Add(memberContext.Copy(member, ref nullableContext));
+
+                imports.AddRange(implementationImports);
+
+                // An implementation can inherit an unsafe context from any containing type.
+                requiresUnsafe |= implementation.AncestorsAndSelf().OfType<TypeDeclarationSyntax>()
+                    .Any(type => type.Modifiers.Any(SyntaxKind.UnsafeKeyword));
             }
 
-            return (members, usings);
+            // Emit the final group after the dependency walk finishes.
+            if (members.Count > 0)
+                yield return (members, imports, requiresUnsafe);
         }
 
-        static string GetNamespace(TypeDeclarationSyntax type)
+        static TypeDeclarationSyntax CreatePartialDeclaration(TypeDeclarationSyntax template, IEnumerable<MemberDeclarationSyntax> members)
         {
-            // Get the namespace of the type
-            var parent = type.Parent;
-            while (parent != null)
+            // The generic parameter names and variance must match for the declarations to merge.
+            TypeParameterListSyntax? typeParameters = null;
+            if (template.TypeParameterList is { } originalParameters)
             {
-                if (parent is NamespaceDeclarationSyntax namespaceDecl)
-                {
-                    return namespaceDecl.Name.ToString();
-                }
-                else if (parent is FileScopedNamespaceDeclarationSyntax fileScopedNamespaceDecl)
-                {
-                    return fileScopedNamespaceDecl.Name.ToString();
-                }
-                parent = parent.Parent;
+                typeParameters = SyntaxFactory.TypeParameterList(SyntaxFactory.SeparatedList(originalParameters.Parameters.Select(parameter =>
+                    SyntaxFactory.TypeParameter(parameter.Identifier.WithoutTrivia()).WithVarianceKeyword(parameter.VarianceKeyword.WithoutTrivia()))));
             }
-            return string.Empty;
+
+            // The original part supplies attributes, base types, constraints, and any primary constructor.
+            // Build an explicit body for the copied members, including for records declared with a semicolon.
+            var declaration = template
+                .WithAttributeLists(default)
+                .WithModifiers(SyntaxFactory.TokenList(template.Modifiers.Select(modifier => modifier.WithoutTrivia())))
+                .WithKeyword(template.Keyword.WithoutTrivia())
+                .WithIdentifier(template.Identifier.WithoutTrivia())
+                .WithTypeParameterList(typeParameters)
+                .WithParameterList(null)
+                .WithBaseList(null)
+                .WithConstraintClauses(default)
+                .WithOpenBraceToken(SyntaxFactory.Token(SyntaxKind.OpenBraceToken))
+                .WithMembers(SyntaxFactory.List(members))
+                .WithCloseBraceToken(SyntaxFactory.Token(SyntaxKind.CloseBraceToken))
+                .WithSemicolonToken(default);
+
+            // Preserve the optional class or struct keyword so a generated record has the same kind.
+            return declaration is RecordDeclarationSyntax record
+                ? record.WithClassOrStructKeyword(record.ClassOrStructKeyword.WithoutTrivia())
+                : declaration;
         }
 
-        private class SyntaxNodeComparer : IEqualityComparer<UsingDirectiveSyntax>
+        static string GetHintName(INamedTypeSymbol target, int part, HashSet<string> usedNames)
         {
-            public static readonly SyntaxNodeComparer Instance = new SyntaxNodeComparer();
+            // Metadata names include generic arity. Add the containing types and namespaces to distinguish
+            // targets with the same simple name, and spell the arity separator in a filename-friendly form.
+            var typeNames = new Stack<string>();
+            for (var type = target; type is not null; type = type.ContainingType)
+                typeNames.Push(type.MetadataName.Replace('`', '-'));
 
-            public bool Equals(UsingDirectiveSyntax x, UsingDirectiveSyntax y)
-            {
-                if (x == null || y == null) return false;
-                return x.ToString() == y.ToString();
-            }
+            var namespaceNames = new Stack<string>();
+            for (var ns = target.ContainingNamespace; !ns.IsGlobalNamespace; ns = ns.ContainingNamespace)
+                namespaceNames.Push(ns.Name);
 
-            public int GetHashCode(UsingDirectiveSyntax obj)
-            {
-                return obj.ToString().GetHashCode();
-            }
+            // Reserve separate names for the attribute files and each part of a target.
+            var prefix = "Mixin." + string.Join(".", namespaceNames.Concat(new[] { string.Join("+", typeNames) }));
+            if (part > 1)
+                prefix += $"-part{part}";
+            var hintName = $"{prefix}.g.cs";
+            // C# permits names that differ only by case. A suffix also keeps them distinct on disk.
+            for (var suffix = 2; !usedNames.Add(hintName); suffix++)
+                hintName = $"{prefix}.{suffix}.g.cs";
+
+            return hintName;
         }
 
-        static void GenerateSource(SourceProductionContext spc, ImmutableArray<TypeDeclarationSyntax> types)
+        static SourceText CreateCompositionSource(TypeDeclarationSyntax target, List<MemberDeclarationSyntax> members, Imports imports, bool requiresUnsafe)
         {
-            // Find all partial classes and structs with Implementation attributes
-            var targetTypes = GetTargetTypes(types).ToArray();
+            // Apply the source type's unsafe context where copied declarations may depend on it.
+            var partialTarget = CreatePartialDeclaration(target, members);
+            if (requiresUnsafe && !partialTarget.Modifiers.Any(SyntaxKind.UnsafeKeyword))
+                partialTarget = partialTarget.WithModifiers(partialTarget.Modifiers.Insert(0, SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)));
 
-            // Generate source for each target type
-            foreach (var targetType in targetTypes)
+            // Rebuild the path to the file root so the compiler finds the original nested type.
+            MemberDeclarationSyntax declaration = partialTarget;
+            foreach (var ancestor in target.Ancestors())
             {
-                // Get the implementation types referenced in the target type's Mixin attributes
-                var implementationTypes = GetImplementationTypes(targetType, types).ToArray();
-
-                // Get the members and using directives from the implementation types
-                var (membersToAdd, usingsToAdd) = GetMembersAndUsings(implementationTypes);
-
-                // Generate the new partial type (class or struct)
-                TypeDeclarationSyntax newType = targetType switch
+                declaration = ancestor switch
                 {
-                    ClassDeclarationSyntax => SyntaxFactory
-                        .ClassDeclaration(targetType.Identifier.Text)
-                        .AddModifiers(SyntaxFactory.Token(SyntaxKind.PartialKeyword))
-                        .AddMembers(membersToAdd.ToArray()),
-                    StructDeclarationSyntax => SyntaxFactory
-                        .StructDeclaration(targetType.Identifier.Text)
-                        .AddModifiers(SyntaxFactory.Token(SyntaxKind.PartialKeyword))
-                        .AddMembers(membersToAdd.ToArray()),
-                    _ => throw new InvalidOperationException("Unsupported type declaration")
+                    TypeDeclarationSyntax containingType => CreatePartialDeclaration(containingType, new[] { declaration }),
+                    BaseNamespaceDeclarationSyntax containingNamespace => SyntaxFactory.NamespaceDeclaration(containingNamespace.Name.WithoutTrivia()).AddMembers(declaration),
+                    _ => declaration
                 };
+            }
 
-                // Get the namespace of the target type
-                var namespaceName = GetNamespace(targetType);
+            // Extern aliases come first because using directives can refer to them.
+            var compilationUnit = SyntaxFactory.CompilationUnit()
+                .AddExterns(imports.ExternAliases.ToArray())
+                .AddUsings(imports.Usings.ToArray())
+                .AddMembers(declaration);
 
-                // Create the compilation unit
-                var compilationUnit = SyntaxFactory.CompilationUnit();
+            return SourceText.From(compilationUnit.NormalizeWhitespace().ToFullString(), Encoding.UTF8);
+        }
 
-                // Add using directives
-                compilationUnit = compilationUnit.AddUsings(usingsToAdd.ToArray());
+        static void GenerateSource(SourceProductionContext spc, (Compilation Compilation, ImmutableArray<INamedTypeSymbol> Targets) input)
+        {
+            // Resolve the generated attributes in the compilation that supplied the target symbols.
+            var (compilation, targets) = input;
+            var mixinAttribute = compilation.GetTypeByMetadataName(MixinAttributeMetadataName);
+            var ignoreAttribute = compilation.GetTypeByMetadataName(MixinIgnoreAttributeMetadataName);
+            if (mixinAttribute is null || ignoreAttribute is null)
+                return;
 
-                // Add the type to the appropriate namespace
-                if (namespaceName != null && namespaceName.Trim() != string.Empty)
+            // A partial type can have several attributed declarations. Emit its composition once per symbol.
+            var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var reported = new HashSet<Location>();
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var target in targets)
+            {
+                if (!seen.Add(target))
+                    continue;
+
+                // The generated file must be able to reopen the target and each of its containing types.
+                var targetType = (TypeDeclarationSyntax)target.DeclaringSyntaxReferences[0].GetSyntax(spc.CancellationToken);
+                if (targetType.AncestorsAndSelf().OfType<TypeDeclarationSyntax>().Any(type =>
+                    !type.Modifiers.Any(SyntaxKind.PartialKeyword) || type.Modifiers.Any(SyntaxKind.FileKeyword)))
                 {
-                    var namespaceDeclaration = SyntaxFactory
-                        .NamespaceDeclaration(SyntaxFactory.ParseName(namespaceName))
-                        .AddMembers(newType);
-                    compilationUnit = compilationUnit.AddMembers(namespaceDeclaration);
+                    spc.ReportDiagnostic(Diagnostic.Create(InvalidTarget, targetType.Identifier.GetLocation(), target.ToDisplayString()));
+                    continue;
                 }
-                else
+
+                // Walk the dependencies in order and emit each part with the imports its members need.
+                var implementationTypes = GetImplementationTypes(target, mixinAttribute, spc, reported);
+                int part = 0;
+                foreach (var (members, imports, requiresUnsafe) in GetCompositionParts(target, implementationTypes, compilation, ignoreAttribute, spc.CancellationToken))
                 {
-                    compilationUnit = compilationUnit.AddMembers(newType);
+                    spc.AddSource(GetHintName(target, ++part, usedNames), CreateCompositionSource(targetType, members, imports, requiresUnsafe));
                 }
-
-                // Add nullable enable directive
-                compilationUnit = compilationUnit.WithLeadingTrivia(SyntaxFactory.TriviaList(
-                        SyntaxFactory.Trivia(
-                            SyntaxFactory.NullableDirectiveTrivia(
-                                SyntaxFactory.Token(SyntaxKind.EnableKeyword),
-                                true))));
-
-                // Format the output
-                var sourceText = compilationUnit
-                    .NormalizeWhitespace()
-                    .ToFullString();
-
-                // Add the generated source with type-specific file name
-                spc.AddSource($"{targetType.Identifier.Text}.g.cs", SourceText.From(sourceText, Encoding.UTF8));
             }
         }
 
+        /// <inheritdoc />
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
-#if DEBUG
-            //if (!Debugger.IsAttached)
-            //{
-            //    Debugger.Launch();
-            //}
-#endif
-
-            // Emit attributes
+            // Post-initialization output makes the attributes available when Roslyn binds the input source.
             GenerateMixinAttribute(context);
             GenerateMixinIgnoreAttribute(context);
 
-            // Collect all class and struct declarations
-            var typeDeclarations = context.SyntaxProvider
-                .CreateSyntaxProvider(
-                    predicate: (node, _) => node is TypeDeclarationSyntax,
-                    transform: (ctx, _) => (TypeDeclarationSyntax)ctx.Node)
-                .Collect();
+            // Use Roslyn's attribute matching to find the annotated class, struct, and record symbols.
+            var targets = context.SyntaxProvider.ForAttributeWithMetadataName(
+                MixinAttributeMetadataName,
+                predicate: (node, _) => node is ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax,
+                transform: (ctx, _) => (INamedTypeSymbol)ctx.TargetSymbol);
 
-            // Process types with Implementation attributes and generate output
-            context.RegisterSourceOutput(typeDeclarations, GenerateSource);
+            // Generation needs the full compilation to resolve dependencies and read member context from other files.
+            context.RegisterSourceOutput(context.CompilationProvider.Combine(targets.Collect()), GenerateSource);
         }
     }
 }
