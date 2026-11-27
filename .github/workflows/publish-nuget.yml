@@ -1,0 +1,57 @@
+name: Publish to NuGet
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged release
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The generator project packs its NuGet package as part of the test build.
+      - name: Test and build the package
+        run: dotnet test source/JinShil.MixinSourceGenerator.sln --configuration Release
+
+      - name: Match the package to the release tag
+        id: package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          package="source/JinShil.MixinSourceGenerator/bin/Release/JinShil.MixinSourceGenerator.${version}.nupkg"
+          if [[ ! -f "$package" ]]; then
+            printf '::error::Release tag %s must match the NuGet package version.\n' "$RELEASE_TAG"
+            exit 1
+          fi
+          printf 'path=%s\n' "$package" >> "$GITHUB_OUTPUT"
+
+      # NuGet.org exchanges this workflow's identity for a short-lived publishing key.
+      - name: Authenticate to NuGet.org
+        id: nuget
+        uses: NuGet/login@v1
+        with:
+          user: JinShil
+
+      - name: Publish the package
+        env:
+          PACKAGE_PATH: ${{ steps.package.outputs.path }}
+          NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push "$PACKAGE_PATH"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "$NUGET_API_KEY"
+          --skip-duplicate
